@@ -19,15 +19,21 @@
 ---
 status:       PUBLISHED
 technologies: [Android]
-categories:   [Getting Started, Jetpack]
+categories:
+  - Getting Started
+  - Jetpack
+  - AndroidTesting
+  - AndroidArchitecture
+  - AndroidArchitectureUILayer
+  - AndroidArchitectureDataLayer
 languages:    [Kotlin]
 solutions:    [Mobile]
 
-github:       googlesamples/android-sunflower
+github:       android/sunflower
 
 level:        INTERMEDIATE
 
-icon:         screenshots/icon.png
+icon:         screenshots/ic_launcher-web.png
 
 apiRefs:
     - android:android.support.constraint.ConstraintLayout

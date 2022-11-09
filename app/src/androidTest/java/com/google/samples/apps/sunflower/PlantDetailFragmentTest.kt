@@ -18,55 +18,68 @@ package com.google.samples.apps.sunflower
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
-import android.support.test.InstrumentationRegistry
-import android.support.test.espresso.Espresso.onView
-import android.support.test.espresso.action.ViewActions.click
-import android.support.test.espresso.intent.Intents
-import android.support.test.espresso.intent.Intents.intended
-import android.support.test.espresso.intent.matcher.IntentMatchers.hasAction
-import android.support.test.espresso.intent.matcher.IntentMatchers.hasExtra
-import android.support.test.espresso.intent.matcher.IntentMatchers.hasType
-import android.support.test.espresso.matcher.ViewMatchers.withId
-import android.support.test.rule.ActivityTestRule
-import android.support.test.runner.AndroidJUnit4
-import androidx.navigation.findNavController
+import android.os.Bundle
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.navigation.Navigation.findNavController
+import androidx.test.espresso.intent.Intents
+import androidx.test.espresso.intent.Intents.intended
+import androidx.test.espresso.intent.matcher.IntentMatchers.hasAction
+import androidx.test.espresso.intent.matcher.IntentMatchers.hasExtra
+import androidx.test.espresso.intent.matcher.IntentMatchers.hasType
+import androidx.test.platform.app.InstrumentationRegistry
 import com.google.samples.apps.sunflower.utilities.chooser
-import com.google.samples.apps.sunflower.utilities.testPlant
-import org.hamcrest.CoreMatchers.allOf
+import dagger.hilt.android.testing.HiltAndroidRule
+import dagger.hilt.android.testing.HiltAndroidTest
+import org.hamcrest.Matchers.allOf
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import org.junit.runner.RunWith
+import org.junit.rules.RuleChain
 
-@RunWith(AndroidJUnit4::class)
-class PlantDetailFragmentTest {
+@HiltAndroidTest
+class PlantDetailFragmentTest2 {
 
-    @Rule
-    @JvmField
-    val activityTestRule = ActivityTestRule(GardenActivity::class.java)
+    private val hiltRule = HiltAndroidRule(this)
+    private val composeTestRule = createAndroidComposeRule<GardenActivity>()
+
+    @get:Rule
+    val rule:RuleChain = RuleChain
+        .outerRule(hiltRule)
+        .around(composeTestRule)
 
     @Before
     fun jumpToPlantDetailFragment() {
-        activityTestRule.activity.apply {
-            runOnUiThread {
-                val bundle = PlantDetailFragmentArgs.Builder(testPlant.plantId).build().toBundle()
-                findNavController(R.id.garden_nav_fragment).navigate(R.id.plant_detail_fragment, bundle)
-            }
+        composeTestRule.activityRule.scenario.onActivity {
+            val bundle = Bundle().apply { putString("plantId", "malus-pumila") }
+            findNavController(it, R.id.nav_host).navigate(R.id.plant_detail_fragment, bundle)
         }
     }
 
     @Test
-    fun testShareTextIntent() {
-        val shareText = activityTestRule.activity.getString(R.string.share_text_plant, testPlant.name)
+    fun screen_launches() {
+        composeTestRule.onNodeWithText("Apple").assertIsDisplayed()
+    }
 
+    @Test
+    fun testShareTextIntent() {
         Intents.init()
-        onView(withId(R.id.action_share)).perform(click())
+
+        composeTestRule.onNodeWithText("Apple").assertIsDisplayed()
+        composeTestRule.onNodeWithContentDescription("Share").assertIsDisplayed().performClick()
+
         intended(
             chooser(
                 allOf(
                     hasAction(Intent.ACTION_SEND),
                     hasType("text/plain"),
-                    hasExtra(Intent.EXTRA_TEXT, shareText)
+                    hasExtra(
+                        Intent.EXTRA_TEXT,
+                        "Check out the Apple plant in the Android Sunflower app"
+                    )
                 )
             )
         )

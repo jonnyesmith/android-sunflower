@@ -16,112 +16,78 @@
 
 package com.google.samples.apps.sunflower
 
-import android.arch.lifecycle.Observer
-import android.arch.lifecycle.ViewModelProviders
 import android.content.Intent
-import android.databinding.DataBindingUtil
-import android.os.Build
 import android.os.Bundle
-import android.support.design.widget.Snackbar
-import android.support.v4.app.Fragment
-import android.support.v4.app.ShareCompat
 import android.view.LayoutInflater
-import android.view.Menu
-import android.view.MenuInflater
-import android.view.MenuItem
-import android.view.View
 import android.view.ViewGroup
-
-import com.google.samples.apps.sunflower.databinding.FragmentPlantDetailBinding
-import com.google.samples.apps.sunflower.utilities.InjectorUtils
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.core.app.ShareCompat
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
+import androidx.navigation.findNavController
+import androidx.navigation.fragment.findNavController
+import com.google.android.material.composethemeadapter.MdcTheme
+import com.google.samples.apps.sunflower.compose.plantdetail.PlantDetailsScreen
 import com.google.samples.apps.sunflower.viewmodels.PlantDetailViewModel
+import dagger.hilt.android.AndroidEntryPoint
+import kotlin.text.Typography.dagger
 
 /**
  * A fragment representing a single Plant detail screen.
  */
+@AndroidEntryPoint
 class PlantDetailFragment : Fragment() {
 
-    private lateinit var shareText: String
+    private val plantDetailViewModel: PlantDetailViewModel by viewModels()
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?
-    ): View? {
-        val plantId = PlantDetailFragmentArgs.fromBundle(arguments).plantId
-
-        val factory = InjectorUtils.providePlantDetailViewModelFactory(requireActivity(), plantId)
-        val plantDetailViewModel = ViewModelProviders.of(this, factory)
-                .get(PlantDetailViewModel::class.java)
-
-        val binding = DataBindingUtil.inflate<FragmentPlantDetailBinding>(
-                inflater, R.layout.fragment_plant_detail, container, false).apply {
-            viewModel = plantDetailViewModel
-            setLifecycleOwner(this@PlantDetailFragment)
-            fab.setOnClickListener { view ->
-                plantDetailViewModel.addPlantToGarden()
-                Snackbar.make(view, R.string.added_plant_to_garden, Snackbar.LENGTH_LONG).show()
+    ) = ComposeView(requireContext()).apply {
+        setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+        setContent {
+            // Create a Compose MaterialTheme inheriting the existing colors, typography
+            // and shapes of the current View system's theme
+            MdcTheme {
+                PlantDetailsScreen(
+                    plantDetailViewModel,
+                    onBackClick = {
+                        findNavController().navigateUp()
+                    },
+                    onShareClick = {
+                        createShareIntent()
+                    }
+                )
             }
         }
+    }
 
-        plantDetailViewModel.plant.observe(this, Observer { plant ->
-            shareText = if (plant == null) {
+    private fun navigateToGallery() {
+        plantDetailViewModel.plant.value?.let { plant ->
+            val direction =
+                PlantDetailFragmentDirections.actionPlantDetailFragmentToGalleryFragment(plant.name)
+            findNavController().navigate(direction)
+        }
+    }
+
+    // Helper function for calling a share functionality.
+    // Should be used when user presses a share button/menu item.
+    @Suppress("DEPRECATION")
+    private fun createShareIntent() {
+        val shareText = plantDetailViewModel.plant.value.let { plant ->
+            if (plant == null) {
                 ""
             } else {
                 getString(R.string.share_text_plant, plant.name)
             }
-        })
-
-        setHasOptionsMenu(true)
-
-        return binding.root
-    }
-
-    override fun onCreateOptionsMenu(menu: Menu?, inflater: MenuInflater?) {
-        inflater?.inflate(R.menu.menu_plant_detail, menu)
-        super.onCreateOptionsMenu(menu, inflater)
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem?): Boolean {
-        return when (item?.itemId) {
-            R.id.action_share -> {
-                val shareIntent = ShareCompat.IntentBuilder.from(activity)
-                    .setText(shareText)
-                    .setType("text/plain")
-                    .createChooserIntent()
-                    .apply {
-                        // https://android-developers.googleblog.com/2012/02/share-with-intents.html
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                            // If we're on Lollipop, we can open the intent as a document
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
-                        } else {
-                            // Else, we will use the old CLEAR_WHEN_TASK_RESET flag
-                            addFlags(Intent.FLAG_ACTIVITY_CLEAR_WHEN_TASK_RESET)
-                        }
-                    }
-                startActivity(shareIntent)
-                return true
-            }
-            else -> super.onOptionsItemSelected(item)
         }
-    }
-
-    companion object {
-
-        /**
-         * The fragment argument representing the item ID that this fragment
-         * represents.
-         */
-        const val ARG_ITEM_ID = "item_id"
-
-        /**
-         * Create a new instance of PlantDetailFragment, initialized with a plant ID.
-         */
-        fun newInstance(plantId: String): PlantDetailFragment {
-
-            // Supply plant ID as an argument.
-            val bundle = Bundle().apply { putString(ARG_ITEM_ID, plantId) }
-            return PlantDetailFragment().apply { arguments = bundle }
-        }
+        val shareIntent = ShareCompat.IntentBuilder.from(requireActivity())
+            .setText(shareText)
+            .setType("text/plain")
+            .createChooserIntent()
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT or Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
+        startActivity(shareIntent)
     }
 }
