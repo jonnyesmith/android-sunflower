@@ -16,6 +16,7 @@
 
 package com.google.samples.apps.sunflower.compose.plantdetail
 
+import android.graphics.drawable.Drawable
 import android.text.method.LinkMovementMethod
 import androidx.annotation.VisibleForTesting
 import androidx.compose.animation.core.Spring
@@ -25,6 +26,7 @@ import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -72,8 +74,8 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -81,15 +83,19 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidViewBinding
 import androidx.constraintlayout.compose.ConstraintLayout
 import androidx.core.text.HtmlCompat
-import coil.compose.AsyncImagePainter
-import coil.compose.rememberAsyncImagePainter
-import coil.request.ImageRequest
-import com.google.android.material.composethemeadapter.MdcTheme
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.bumptech.glide.load.DataSource
+import com.bumptech.glide.load.engine.GlideException
+import com.bumptech.glide.request.RequestListener
+import com.bumptech.glide.request.target.Target
+import com.google.accompanist.themeadapter.material.MdcTheme
 import com.google.samples.apps.sunflower.R
 import com.google.samples.apps.sunflower.compose.Dimens
+import com.google.samples.apps.sunflower.compose.utils.SunflowerImage
 import com.google.samples.apps.sunflower.compose.utils.TextSnackbarContainer
 import com.google.samples.apps.sunflower.compose.visible
 import com.google.samples.apps.sunflower.data.Plant
@@ -103,14 +109,16 @@ import com.google.samples.apps.sunflower.viewmodels.PlantDetailViewModel
 data class PlantDetailsCallbacks(
     val onFabClick: () -> Unit,
     val onBackClick: () -> Unit,
-    val onShareClick: () -> Unit
+    val onShareClick: (String) -> Unit,
+    val onGalleryClick: (Plant) -> Unit
 )
 
 @Composable
 fun PlantDetailsScreen(
-    plantDetailsViewModel: PlantDetailViewModel,
+    plantDetailsViewModel: PlantDetailViewModel = hiltViewModel(),
     onBackClick: () -> Unit,
-    onShareClick: () -> Unit
+    onShareClick: (String) -> Unit,
+    onGalleryClick: (Plant) -> Unit,
 ) {
     val plant = plantDetailsViewModel.plant.observeAsState().value
     val isPlanted = plantDetailsViewModel.isPlanted.observeAsState().value
@@ -126,12 +134,14 @@ fun PlantDetailsScreen(
                 PlantDetails(
                     plant,
                     isPlanted,
+                    plantDetailsViewModel.hasValidUnsplashKey(),
                     PlantDetailsCallbacks(
                         onBackClick = onBackClick,
                         onFabClick = {
                             plantDetailsViewModel.addPlantToGarden()
                         },
-                        onShareClick = onShareClick
+                        onShareClick = onShareClick,
+                        onGalleryClick = onGalleryClick,
                     )
                 )
             }
@@ -144,6 +154,7 @@ fun PlantDetailsScreen(
 fun PlantDetails(
     plant: Plant,
     isPlanted: Boolean,
+    hasValidUnsplashKey: Boolean,
     callbacks: PlantDetailsCallbacks,
     modifier: Modifier = Modifier
 ) {
@@ -175,17 +186,21 @@ fun PlantDetails(
     val toolbarOffsetHeightPx = remember { mutableStateOf(0f) }
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+            override fun onPreScroll(
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
                 val delta = available.y
                 val newOffset = toolbarOffsetHeightPx.value + delta
-                toolbarOffsetHeightPx.value = newOffset.coerceIn(-toolbarHeightPx, 0f)
+                toolbarOffsetHeightPx.value =
+                    newOffset.coerceIn(-toolbarHeightPx, 0f)
                 return Offset.Zero
             }
         }
     }
 
     Box(
-        Modifier
+        modifier
             .fillMaxSize()
             .systemBarsPadding()
             // attach as a parent to the nested scroll system
@@ -204,10 +219,16 @@ fun PlantDetails(
             },
             plant = plant,
             isPlanted = isPlanted,
+            hasValidUnsplashKey = hasValidUnsplashKey,
             imageHeight = with(LocalDensity.current) {
-                Dimens.PlantDetailAppBarHeight + toolbarOffsetHeightPx.value.toDp()
+                val candidateHeight =
+                    Dimens.PlantDetailAppBarHeight + toolbarOffsetHeightPx.value.toDp()
+                // FIXME: Remove this workaround when https://github.com/bumptech/glide/issues/4952
+                // is released
+                maxOf(candidateHeight, 1.dp)
             },
             onFabClick = callbacks.onFabClick,
+            onGalleryClick = { callbacks.onGalleryClick(plant) },
             contentAlpha = { contentAlpha.value }
         )
         PlantToolbar(
@@ -224,9 +245,11 @@ private fun PlantDetailsContent(
     toolbarState: ToolbarState,
     plant: Plant,
     isPlanted: Boolean,
+    hasValidUnsplashKey: Boolean,
     imageHeight: Dp,
     onNamePosition: (Float) -> Unit,
     onFabClick: () -> Unit,
+    onGalleryClick: () -> Unit,
     contentAlpha: () -> Float,
 ) {
     Column(Modifier.verticalScroll(scrollState)) {
@@ -261,8 +284,10 @@ private fun PlantDetailsContent(
                 name = plant.name,
                 wateringInterval = plant.wateringInterval,
                 description = plant.description,
+                hasValidUnsplashKey = hasValidUnsplashKey,
                 onNamePosition = { onNamePosition(it) },
                 toolbarState = toolbarState,
+                onGalleryClick = onGalleryClick,
                 modifier = Modifier.constrainAs(info) {
                     top.linkTo(image.bottom)
                 }
@@ -278,28 +303,51 @@ private fun PlantImage(
     modifier: Modifier = Modifier,
     placeholderColor: Color = MaterialTheme.colors.onSurface.copy(0.2f)
 ) {
-    val painter = rememberAsyncImagePainter(
-        model = ImageRequest.Builder(LocalContext.current)
-            .data(data = imageUrl)
-            .crossfade(true)
-            .build()
-    )
-
-    Image(
-        painter = painter,
-        contentScale = ContentScale.Crop,
-        contentDescription = null,
-        modifier = modifier
+    var isLoading by remember { mutableStateOf(true) }
+    Box(
+        modifier
             .fillMaxWidth()
             .height(imageHeight)
-    )
-
-    if (painter.state is AsyncImagePainter.State.Loading) {
-        Box(
+    ) {
+        if (isLoading) {
+            // TODO: Update this implementation once Glide releases a version
+            // that contains this feature: https://github.com/bumptech/glide/pull/4934
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(placeholderColor)
+            )
+        }
+        SunflowerImage(
+            model = imageUrl,
+            contentDescription = null,
             modifier = Modifier
-                .fillMaxSize()
-                .background(placeholderColor)
-        )
+                .fillMaxSize(),
+            contentScale = ContentScale.Crop,
+        ) {
+            it.addListener(object : RequestListener<Drawable> {
+                override fun onLoadFailed(
+                    e: GlideException?,
+                    model: Any?,
+                    target: Target<Drawable>?,
+                    isFirstResource: Boolean
+                ): Boolean {
+                    isLoading = false
+                    return false
+                }
+
+                override fun onResourceReady(
+                    resource: Drawable?,
+                    model: Any?,
+                    target: Target<Drawable>?,
+                    dataSource: DataSource?,
+                    isFirstResource: Boolean
+                ): Boolean {
+                    isLoading = false
+                    return false
+                }
+            })
+        }
     }
 }
 
@@ -332,17 +380,20 @@ private fun PlantToolbar(
     toolbarAlpha: () -> Float,
     contentAlpha: () -> Float
 ) {
+    val onShareClick = {
+        callbacks.onShareClick(plantName)
+    }
     if (toolbarState.isShown) {
         PlantDetailsToolbar(
             plantName = plantName,
             onBackClick = callbacks.onBackClick,
-            onShareClick = callbacks.onShareClick,
+            onShareClick = onShareClick,
             modifier = Modifier.alpha(toolbarAlpha())
         )
     } else {
         PlantHeaderActions(
             onBackClick = callbacks.onBackClick,
-            onShareClick = callbacks.onShareClick,
+            onShareClick = onShareClick,
             modifier = Modifier.alpha(contentAlpha())
         )
     }
@@ -456,8 +507,10 @@ private fun PlantInformation(
     name: String,
     wateringInterval: Int,
     description: String,
+    hasValidUnsplashKey: Boolean,
     onNamePosition: (Float) -> Unit,
     toolbarState: ToolbarState,
+    onGalleryClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.padding(Dimens.PaddingLarge)) {
@@ -474,29 +527,45 @@ private fun PlantInformation(
                 .onGloballyPositioned { onNamePosition(it.positionInWindow().y) }
                 .visible { toolbarState == ToolbarState.HIDDEN }
         )
-        Text(
-            text = stringResource(id = R.string.watering_needs_prefix),
-            color = MaterialTheme.colors.primaryVariant,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .padding(horizontal = Dimens.PaddingSmall)
+        Box(
+            Modifier
                 .align(Alignment.CenterHorizontally)
-        )
-        CompositionLocalProvider(LocalContentAlpha provides ContentAlpha.medium) {
-            Text(
-                text = pluralStringResource(
-                    R.plurals.watering_needs_suffix,
-                    wateringInterval,
-                    wateringInterval
-                ),
-                modifier = Modifier
-                    .padding(
-                        start = Dimens.PaddingSmall,
-                        end = Dimens.PaddingSmall,
-                        bottom = Dimens.PaddingNormal
+                .padding(
+                    start = Dimens.PaddingSmall,
+                    end = Dimens.PaddingSmall,
+                    bottom = Dimens.PaddingNormal
+                )
+        ) {
+            Column(Modifier.fillMaxWidth()) {
+                Text(
+                    text = stringResource(id = R.string.watering_needs_prefix),
+                    color = MaterialTheme.colors.primaryVariant,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .padding(horizontal = Dimens.PaddingSmall)
+                        .align(Alignment.CenterHorizontally)
+                )
+                CompositionLocalProvider(LocalContentAlpha provides ContentAlpha.medium) {
+                    Text(
+                        text = pluralStringResource(
+                            R.plurals.watering_needs_suffix,
+                            wateringInterval,
+                            wateringInterval
+                        ),
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
                     )
-                    .align(Alignment.CenterHorizontally)
-            )
+                }
+            }
+            if (hasValidUnsplashKey) {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_photo_library),
+                    contentDescription = "Gallery Icon",
+                    Modifier
+                        .clickable { onGalleryClick() }
+                        .align(Alignment.CenterEnd)
+                )
+            }
         }
         PlantDescription(description)
     }
@@ -522,7 +591,8 @@ private fun PlantDetailContentPreview() {
             PlantDetails(
                 Plant("plantId", "Tomato", "HTML<br>description", 6),
                 true,
-                PlantDetailsCallbacks({ }, { }, { })
+                true,
+                PlantDetailsCallbacks({ }, { }, { }, { })
             )
         }
     }
